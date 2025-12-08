@@ -1,9 +1,18 @@
-name: Build
+name: Build Android arm64
 
 on:
   pull_request:
     branches:
       - "*"
+  workflow_dispatch:
+    inputs:
+      snapshot_hash:
+        description: 'Snapshot hash from enginehash.csv'
+        required: true
+      commit:
+        description: 'Engine commit hash'
+        required: true
+        default: 'cf56914b326edb0ccb123ffdc60f00060bd513fa'
 
 jobs:
   build-v2:
@@ -11,77 +20,24 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v2
+        
       - name: Setup Xcode version
         uses: maxim-lobanov/setup-xcode@v1.3.0
         with:
           xcode-version: latest-stable
-      - name: Set variables
-       run: |
-    HASH=$(cat SNAPSHOT_HASH)
-    echo "SNAPSHOT_HASH=$HASH" >> $GITHUB_ENV
-    # 添加下面这行，将引号内的哈希替换为你需要的实际提交
-    echo "COMMIT=cf56914b326edb0ccb123ffdc60f00060bd513fa" >> $GITHUB_ENV
-      - name: Install tools
-        run: |
-          brew install ninja libusbmuxd ideviceinstaller ios-deploy python@3.13
-          python3 -m pip install wheel  --break-system-packages
-          python3 -m pip install .  --break-system-packages
-          git clone https://chromium.googlesource.com/chromium/tools/depot_tools.git
-          git clone https://github.com/flutter/flutter.git engine
-      - name: gclient sync
-        run: |
-          ROOT_DIR=`pwd`
-          export PATH=$PATH:$ROOT_DIR/depot_tools
-          cd engine
-          git config --global user.email "reflutter@example.com" && git config --global user.name "reflutter"
-          git fetch origin $(reflutter -b ${{env.SNAPSHOT_HASH}})
-          git reset --hard FETCH_HEAD
-          reflutter -b ${{env.SNAPSHOT_HASH}}
-          echo 'reflutter' > REFLUTTER
-          git add . && git commit -am "reflutter"
-          cd $ROOT_DIR
-          mkdir customEngine
-          cd customEngine
-          echo 'solutions = [{"managed": False,"name": ".","url": "'$ROOT_DIR/engine'","custom_deps": {},"deps_file": "DEPS","safesync_url": "",},]' > .gclient
-          gclient sync
-          reflutter -b ${{env.SNAPSHOT_HASH}}
-      - name: ninja build Flutter.framework
-        run: export PATH=$PATH:`pwd`/depot_tools && sudo xcode-select -s /Applications/Xcode.app && customEngine/engine/src/flutter/tools/gn --no-goma --ios --runtime-mode=release && ninja -C customEngine/engine/src/out/ios_release
-      - name: ninja build libflutter_arm64
-        run: export PATH=$PATH:`pwd`/depot_tools && customEngine/engine/src/flutter/tools/gn --no-goma --android --android-cpu=arm64 --runtime-mode=release && ninja -C customEngine/engine/src/out/android_release_arm64
-      - name: ninja build libflutter_arm
-        run: export PATH=$PATH:`pwd`/depot_tools && customEngine/engine/src/flutter/tools/gn --no-goma --android --android-cpu=arm --runtime-mode=release && ninja -C customEngine/engine/src/out/android_release
-      - name: Move to release
-        run: |
-          cp customEngine/engine/src/out/ios_release/Flutter.framework/Flutter Flutter
-          cp customEngine/engine/src/out/android_release_arm64/lib.stripped/libflutter.so libflutter_arm64.so 2>/dev/null || :
-          cp customEngine/engine/src/out/android_release/lib.stripped/libflutter.so libflutter_arm.so 2>/dev/null || :
-      - name: iOS-Release
-        uses: softprops/action-gh-release@v1
-        with:
-          tag_name: ios-v2-${{env.SNAPSHOT_HASH}}
-          files: |
-            ./Flutter
-      - name: Android-Release
-        uses: softprops/action-gh-release@v1
-        with:
-          tag_name: android-v2-${{env.SNAPSHOT_HASH}}
-          files: |
-            ./*.so
-
-  build-v3:
-    runs-on: macos-14
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v2
-      - name: Setup Xcode version
-        uses: maxim-lobanov/setup-xcode@v1.3.0
-        with:
-          xcode-version: latest-stable
+          
       - name: Set variables
         run: |
-          HASH=$(cat SNAPSHOT_HASH)
-          echo "SNAPSHOT_HASH=$HASH" >> $GITHUB_ENV
+          # 如果是手动触发，使用输入参数；否则从文件读取
+          if [ -n "${{ github.event.inputs.snapshot_hash }}" ]; then
+            echo "SNAPSHOT_HASH=${{ github.event.inputs.snapshot_hash }}" >> $GITHUB_ENV
+            echo "COMMIT=${{ github.event.inputs.commit }}" >> $GITHUB_ENV
+          else
+            HASH=$(cat SNAPSHOT_HASH)
+            echo "SNAPSHOT_HASH=$HASH" >> $GITHUB_ENV
+            echo "COMMIT=cf56914b326edb0ccb123ffdc60f00060bd513fa" >> $GITHUB_ENV
+          fi
+          
       - name: Install tools
         run: |
           brew install ninja libusbmuxd ideviceinstaller ios-deploy python@3.13
@@ -89,43 +45,43 @@ jobs:
           python3 -m pip install . --break-system-packages
           git clone https://chromium.googlesource.com/chromium/tools/depot_tools.git
           git clone https://github.com/flutter/flutter.git engine
+          
       - name: gclient sync
         run: |
           ROOT_DIR=`pwd`
           export PATH=$PATH:$ROOT_DIR/depot_tools
           cd engine
           git config --global user.email "reflutter@example.com" && git config --global user.name "reflutter"
-          git fetch origin $(reflutter -b ${{env.SNAPSHOT_HASH}})
+          
+          # 使用固定COMMIT，不再动态计算
+          git fetch origin ${{ env.COMMIT }}
           git reset --hard FETCH_HEAD
-          reflutter -b ${{env.SNAPSHOT_HASH}} -p
+          
+          reflutter -b ${{ env.SNAPSHOT_HASH }}
           echo 'reflutter' > REFLUTTER
           git add . && git commit -am "reflutter"
+          
           cd $ROOT_DIR
           mkdir customEngine
           cd customEngine
           echo 'solutions = [{"managed": False,"name": ".","url": "'$ROOT_DIR/engine'","custom_deps": {},"deps_file": "DEPS","safesync_url": "",},]' > .gclient
           gclient sync
-          reflutter -b ${{env.SNAPSHOT_HASH}} -p
-      - name: ninja build Flutter.framework
-        run: export PATH=$PATH:`pwd`/depot_tools && sudo xcode-select -s /Applications/Xcode.app && customEngine/engine/src/flutter/tools/gn --no-goma --ios --runtime-mode=release && ninja -C customEngine/engine/src/out/ios_release
+          reflutter -b ${{ env.SNAPSHOT_HASH }}
+          
       - name: ninja build libflutter_arm64
-        run: export PATH=$PATH:`pwd`/depot_tools && customEngine/engine/src/flutter/tools/gn --no-goma --android --android-cpu=arm64 --runtime-mode=release && ninja -C customEngine/engine/src/out/android_release_arm64
-      - name: ninja build libflutter_arm
-        run: export PATH=$PATH:`pwd`/depot_tools && customEngine/engine/src/flutter/tools/gn --no-goma --android --android-cpu=arm --runtime-mode=release && ninja -C customEngine/engine/src/out/android_release
+        run: |
+          export PATH=$PATH:`pwd`/depot_tools
+          customEngine/engine/src/flutter/tools/gn --no-goma --android --android-cpu=arm64 --runtime-mode=release
+          ninja -C customEngine/engine/src/out/android_release_arm64
+          
       - name: Move to release
         run: |
-          cp customEngine/engine/src/out/ios_release/Flutter.framework/Flutter Flutter
+          # 只复制arm64的so文件
           cp customEngine/engine/src/out/android_release_arm64/lib.stripped/libflutter.so libflutter_arm64.so 2>/dev/null || :
-          cp customEngine/engine/src/out/android_release/lib.stripped/libflutter.so libflutter_arm.so 2>/dev/null || :
-      - name: iOS-Release
-        uses: softprops/action-gh-release@v1
-        with:
-          tag_name: ios-v3-${{env.SNAPSHOT_HASH}}
-          files: |
-            ./Flutter
+          
       - name: Android-Release
         uses: softprops/action-gh-release@v1
         with:
-          tag_name: android-v3-${{env.SNAPSHOT_HASH}}
+          tag_name: android-arm64-v2-${{ env.SNAPSHOT_HASH }}
           files: |
-            ./*.so
+            ./libflutter_arm64.so
