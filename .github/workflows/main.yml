@@ -16,9 +16,11 @@ jobs:
         with:
           xcode-version: latest-stable
       - name: Set variables
-        run: |
-          HASH=$(cat SNAPSHOT_HASH)
-          echo "SNAPSHOT_HASH=$HASH" >> $GITHUB_ENV
+       run: |
+    HASH=$(cat SNAPSHOT_HASH)
+    echo "SNAPSHOT_HASH=$HASH" >> $GITHUB_ENV
+    # 添加下面这行，将引号内的哈希替换为你需要的实际提交
+    echo "COMMIT=cf56914b326edb0ccb123ffdc60f00060bd513fa" >> $GITHUB_ENV
       - name: Install tools
         run: |
           brew install ninja libusbmuxd ideviceinstaller ios-deploy python@3.13
